@@ -1,0 +1,13 @@
+
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build app",
+            "type": "shell",
+            "command": "dmd -g -debug -Isrc src/app.d -of=app",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
