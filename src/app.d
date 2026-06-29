@@ -8,8 +8,9 @@ import std.stdio   : writeln, write, readln;
 import std.string  : strip, split;
 import std.process : environment;
 import std.path    : baseName;
+import std.file    : readText;
 
-import selector    : listChapterRanges, listChapterNumbers, listProjects;
+import selector    : runSelector;
 import dbg         : dbg, DEBUG_LEVEL;
 
 /// digit check 
@@ -49,7 +50,7 @@ ProjectParts parseProject(string base)
 
     foreach (i; 3 .. parts.length)
     {
-        if (i != 3) p.title ~= " ";
+        if (!(i == 3)) p.title ~= " ";
         p.title ~= parts[i];
     }
 
@@ -62,47 +63,15 @@ string prettyPrintAligned(string base)
     auto p = parseProject(base);
 
     string chapCol = p.chapter;
-    while (chapCol.length <= 3) chapCol ~= " ";
+    while (!(chapCol.length > 3)) chapCol ~= " ";
 
     string pageCol = p.page;
-    while (pageCol.length <= 4) pageCol ~= " ";
+    while (!(pageCol.length > 4)) pageCol ~= " ";
 
     string sectCol = p.section;
-    while (sectCol.length <= 3) sectCol ~= " ";
+    while (!(sectCol.length > 3)) sectCol ~= " ";
 
     return chapCol ~ pageCol ~ sectCol ~ p.title;
-}
-
-/// DRY 1‑based selection helper with aligned pretty printing
-string selectIndex(string[] items, string label)
-{
-    writeln(label ~ ":");
-
-    foreach (i, item; items)
-    {
-        string base = baseName(item);
-        writeln("  ", i + 1, ") ", prettyPrintAligned(base));
-    }
-
-    write("Select " ~ label ~ " (1-" ~ to!string(items.length) ~ "): ");
-    string raw = strip(readln());
-
-    if (raw.length == 0)
-    {
-        writeln("Invalid input.");
-        return "";
-    }
-
-    int idx1 = to!int(raw);
-
-    // index must be in range [1 .. items.length]
-    if (!(1 <= idx1 && idx1 <= items.length))
-    {
-        writeln("Invalid index.");
-        return "";
-    }
-
-    return items[idx1 - 1];
 }
 
 /// app entry point
@@ -115,8 +84,6 @@ void main(string[] args)
     );
 
     int dbgLevel = 0;
-
-    // invalid debug options are ignored (ADOPT‑canonical: garbage → debug level 0)
 
     bool allDigits = true;
     foreach (ch; dbgRaw)
@@ -132,7 +99,7 @@ void main(string[] args)
     {
         int lvl = to!int(dbgRaw);
 
-        if (lvl <= 0)
+        if (!(lvl > 0))
         {
             dbgLevel = 0;
         }
@@ -153,30 +120,50 @@ void main(string[] args)
     DEBUG_LEVEL = dbgLevel;
     dbg(1, "debug level = " ~ to!string(DEBUG_LEVEL));
 
-    string home = environment["HOME"];
-    string root = home ~ "/dev/repos/programming-in-d";
+    // token optional: bare ./codepid → tree descent
+    string token;
 
-    dbg(1, "Prax spine root: " ~ root);
+    if (args.length <= 1)
+    {
+        token = "";
+        dbg(1, "token = <empty> (tree descent mode)");
+    }
+    else
+    {
+        token = args[1];
+        dbg(1, "token = " ~ token);
+    }
 
-    auto ranges = listChapterRanges(root);
-    dbg(1, "app: chapter ranges count = " ~ to!string(ranges.length));
-    auto rangeRoot = selectIndex(ranges, "Chapter Range");
-    if (rangeRoot.length == 0) return;
-    dbg(1, "app: selected chapter range " ~ baseName(rangeRoot));
+    // selector UI
+    auto chosen = runSelector(token);
 
-    auto chapters = listChapterNumbers(rangeRoot);
-    dbg(1, "app: chapters count = " ~ to!string(chapters.length));
-    auto chapterRoot = selectIndex(chapters, "Chapter");
-    if (chapterRoot.length == 0) return;
-    dbg(1, "app: selected chapter " ~ baseName(chapterRoot));
+    if (chosen.length == 0)
+    {
+        writeln("No selection.");
+        return;
+    }
 
-    auto projects = listProjects(chapterRoot);
-    dbg(1, "app: projects count = " ~ to!string(projects.length));
-    auto projectRoot = selectIndex(projects, "Project");
-    if (projectRoot.length == 0) return;
-    dbg(1, "app: selected project " ~ baseName(projectRoot));
+    dbg(1, "selected basename = " ~ chosen);
 
-    writeln("Selected project: ", prettyPrintAligned(baseName(projectRoot)));
+    // load file from Prax spine
+    auto home = environment["HOME"];
+    auto root = home ~ "/dev/repos/programming-in-d";
+
+    auto path = root ~ "/" ~ chosen;
+    string content;
+
+    try {
+        content = readText(path);
+    } catch (Exception e) {
+        writeln("Cannot read file: ", path);
+        return;
+    }
+
+    writeln("----- BEGIN FILE -----");
+    writeln(content);
+    writeln("----- END FILE -----");
+
+    writeln("Selected project: ", prettyPrintAligned(baseName(chosen)));
 }
 
 // End of Document /<repo:codepid/src/app.d/>

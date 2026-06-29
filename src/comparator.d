@@ -2,130 +2,235 @@
 
 module comparator;
 
-import std.string : split;
-import std.conv   : to;
+import std.path : baseName;
 
-import dbg        : dbg;
-
-/// section class
-enum SectionClass
+/// ASCII digit helper
+private bool isDigit(char c)
 {
-    plain,
-    numeric,
-    alpha,
-    mixed
+    return ('0' <= c && c <= '9');
 }
 
-/// classify section tokens
-SectionClass classifySection(string s)
+/// manual string→int
+private int toInt(string s)
 {
-    bool hasDigit = false;
-    bool hasAlpha = false;
+    int v = 0;
+    size_t i = 0;
 
-    foreach (ch; s)
+    while (i < s.length && isDigit(s[i]))
     {
-        if (ch >= '0' && ch <= '9')
-            hasDigit = true;
-        else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'))
-            hasAlpha = true;
+        v = v * 10 + (s[i] - '0');
+        i = i + 1;
     }
 
-    if (hasDigit && hasAlpha) return SectionClass.mixed;
-    if (hasDigit)             return SectionClass.numeric;
-    if (hasAlpha)             return SectionClass.alpha;
-    return SectionClass.plain;
+    return v;
 }
 
-/// parse leading digits starting at index `start`
-int parseLeadingInt(string s, size_t start)
+/// manual underscore split
+private string[] splitUnderscore(string s)
 {
+    string[] acc;
+    size_t i = 0;
+    size_t start = 0;
+
+    while (i < s.length)
+    {
+        if (s[i] == '_')
+        {
+            acc ~= s[start .. i];
+            start = i + 1;
+        }
+        i = i + 1;
+    }
+
+    acc ~= s[start .. s.length];
+    return acc;
+}
+
+/// section classification
+/// 1 = letter-only (a, b, c)
+/// 2 = number+letter (1a, 2b)
+/// 3 = number-only (1, 2)
+private int classifySection(string s)
+{
+    if (s.length == 0) return 3;
+
+    size_t i = 0;
+
+    // letter-only
+    if (!isDigit(s[0]))
+    {
+        return 1;
+    }
+
+    // starts with digit
+    i = 1;
+    while (i < s.length && isDigit(s[i]))
+    {
+        i = i + 1;
+    }
+
+    // pure number
+    if (i == s.length)
+    {
+        return 3;
+    }
+
+    // number+letter
+    return 2;
+}
+
+/// extract numeric prefix from section
+private int sectionNumber(string s)
+{
+    size_t i = 0;
     string digits;
 
-    foreach (ch; s[start .. $])
+    while (i < s.length && isDigit(s[i]))
     {
-        if (ch >= '0' && ch <= '9')
-            digits ~= ch;
-        else
-            break;
+        digits ~= s[i];
+        i = i + 1;
     }
 
-    if (digits.length != 0)
-        return to!int(digits);
-
-    return 0;
+    if (digits.length == 0) return 0;
+    return toInt(digits);
 }
 
-/// ADOPT‑pure compare: return -1, 0, +1
-int compareBasename(string a, string b)
+/// extract suffix (letters after numeric prefix)
+private string sectionSuffix(string s)
 {
-    dbg(1, "compare: " ~ a ~ " vs " ~ b);
+    size_t i = 0;
 
-    auto pa = a.split("_");
-    auto pb = b.split("_");
+    while (i < s.length && isDigit(s[i]))
+    {
+        i = i + 1;
+    }
 
-    //
-    // CHAPTER: cNN or cNN-XX
-    //
-    int chA = (pa.length > 0 && pa[0].length >= 2)
-        ? parseLeadingInt(pa[0], 1)
-        : 0;
+    return s[i .. s.length];
+}
 
-    int chB = (pb.length > 0 && pb[0].length >= 2)
-        ? parseLeadingInt(pb[0], 1)
-        : 0;
+/// parse Prax filename: cNN_pNN_section_title
+struct FileParts
+{
+    int chapter;
+    int page;
+    string section;
+    string title;
+}
 
-    dbg(2, "chapter: " ~ to!string(chA) ~ " vs " ~ to!string(chB));
+private FileParts parseFile(string base)
+{
+    auto parts = splitUnderscore(base);
 
-    if (chA < chB) return -1;
-    if (chA != chB) return 1;   // ADOPT‑pure: no '>'
+    FileParts fp;
 
-    //
-    // PAGE: pNNN
-    //
-    int pgA = (pa.length > 1 && pa[1].length >= 2)
-        ? parseLeadingInt(pa[1], 1)
-        : 0;
+    // chapter
+    if (!(parts.length < 1))
+    {
+        auto p0 = parts[0];
+        if (!(p0.length < 2) && p0[0] == 'c')
+        {
+            fp.chapter = toInt(p0[1 .. p0.length]);
+        }
+    }
 
-    int pgB = (pb.length > 1 && pb[1].length >= 2)
-        ? parseLeadingInt(pb[1], 1)
-        : 0;
+    // page
+    if (!(parts.length < 2))
+    {
+        auto p1 = parts[1];
+        if (!(p1.length < 2) && p1[0] == 'p')
+        {
+            fp.page = toInt(p1[1 .. p1.length]);
+        }
+    }
 
-    dbg(2, "page: " ~ to!string(pgA) ~ " vs " ~ to!string(pgB));
+    // section
+    if (!(parts.length < 3))
+    {
+        fp.section = parts[2];
+    }
 
-    if (pgA < pgB) return -1;
-    if (pgA != pgB) return 1;
+    // title
+    if (!(parts.length < 4))
+    {
+        string t;
+        size_t i = 3;
+        while (i < parts.length)
+        {
+            if (!(i == 3)) t ~= " ";
+            t ~= parts[i];
+            i = i + 1;
+        }
+        fp.title = t;
+    }
 
-    //
-    // SECTION: token 2
-    //
-    string secA = (pa.length > 2) ? pa[2] : "";
-    string secB = (pb.length > 2) ? pb[2] : "";
+    return fp;
+}
 
-    dbg(2, "section: " ~ secA ~ " vs " ~ secB);
+/// lexicographic string compare using only < and <=
+private bool strLess(string a, string b)
+{
+    size_t i = 0;
 
-    auto classA = classifySection(secA);
-    auto classB = classifySection(secB);
+    while (i < a.length && i < b.length)
+    {
+        auto ca = a[i];
+        auto cb = b[i];
 
-    dbg(3, "section class: " ~ to!string(classA) ~ " / " ~ to!string(classB));
+        if (ca < cb) return true;
+        if (cb < ca) return false;
 
-    if (classA < classB) return -1;
-    if (classA != classB) return 1;
+        i = i + 1;
+    }
 
-    //
-    // same class: lexicographic
-    //
-    if (secA < secB) return -1;
-    if (secA != secB) return 1;
+    if (a.length < b.length) return true;
+    return false;
+}
 
-    //
-    // fallback: full string compare
-    //
-    dbg(3, "fallback alpha: " ~ a ~ " <=> " ~ b);
+/// Prax operator comparator
+private bool fileLess(const FileParts a, const FileParts b)
+{
+    // chapter
+    if (a.chapter < b.chapter) return true;
+    if (b.chapter < a.chapter) return false;
 
-    if (a < b) return -1;
-    if (a != b) return 1;
+    // page
+    if (a.page < b.page) return true;
+    if (b.page < a.page) return false;
 
-    return 0;
+    // section class
+    auto ca = classifySection(a.section);
+    auto cb = classifySection(b.section);
+
+    if (ca < cb) return true;
+    if (cb < ca) return false;
+
+    // section numeric prefix
+    auto na = sectionNumber(a.section);
+    auto nb = sectionNumber(b.section);
+
+    if (na < nb) return true;
+    if (nb < na) return false;
+
+    // section suffix
+    auto sa = sectionSuffix(a.section);
+    auto sb = sectionSuffix(b.section);
+
+    if (strLess(sa, sb)) return true;
+    if (strLess(sb, sa)) return false;
+
+    // title
+    if (strLess(a.title, b.title)) return true;
+
+    return false;
+}
+
+/// compare two basenames cNN_pNN_section_title
+bool basenameLess(string a, string b)
+{
+    auto fa = parseFile(baseName(a));
+    auto fb = parseFile(baseName(b));
+
+    return fileLess(fa, fb);
 }
 
 // End of Document /<repo:codepid/src/comparator.d/>
