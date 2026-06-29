@@ -4,14 +4,9 @@ module dbg;
 
 import std.stdio : writeln;
 
-/// Local debug level for dbg() output.
-/// 0 = silent
-/// 1 = minimal tracing (recommended)
-enum int DEBUG_LEVEL = 1;
+int DEBUG_LEVEL = 0;   // runtime-settable
 
-/// Minimal debug output.
-/// Prints only when level <= DEBUG_LEVEL.
-void dbg(int level, lazy string msg)
+void dbg(int level, string msg)
 {
     if (level <= DEBUG_LEVEL)
         writeln(msg);
